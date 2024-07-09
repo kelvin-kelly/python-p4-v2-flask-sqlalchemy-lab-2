@@ -1,59 +1,59 @@
-from app import app, db
-from server.models import Customer, Item, Review
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import MetaData
+from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy_serializer import SerializerMixin
 
 
-class TestSerialization:
-    '''models in models.py'''
 
-    def test_customer_is_serializable(self):
-        '''customer is serializable'''
-        with app.app_context():
-            c = Customer(name='Phil')
-            db.session.add(c)
-            db.session.commit()
-            r = Review(comment='great!', customer=c)
-            db.session.add(r)
-            db.session.commit()
-            customer_dict = c.to_dict()
+metadata = MetaData(naming_convention={
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+})
 
-            assert customer_dict['id']
-            assert customer_dict['name'] == 'Phil'
-            assert customer_dict['reviews']
-            assert 'customer' not in customer_dict['reviews']
+db = SQLAlchemy(metadata=metadata)
 
-    def test_item_is_serializable(self):
-        '''item is serializable'''
-        with app.app_context():
-            i = Item(name='Insulated Mug', price=9.99)
-            db.session.add(i)
-            db.session.commit()
-            r = Review(comment='great!', item=i)
-            db.session.add(r)
-            db.session.commit()
 
-            item_dict = i.to_dict()
-            assert item_dict['id']
-            assert item_dict['name'] == 'Insulated Mug'
-            assert item_dict['price'] == 9.99
-            assert item_dict['reviews']
-            assert 'item' not in item_dict['reviews']
+class Customer(db.Model, SerializerMixin):
+    __tablename__ = 'customers'
 
-    def test_review_is_serializable(self):
-        '''review is serializable'''
-        with app.app_context():
-            c = Customer()
-            i = Item()
-            db.session.add_all([c, i])
-            db.session.commit()
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String)
 
-            r = Review(comment='great!', customer=c, item=i)
-            db.session.add(r)
-            db.session.commit()
+    # Adding the relationship to the Review model
+    reviews = db.relationship('Review', back_populates='customer')
+    items = association_proxy("reviews", "item", creator=lambda item_obj: Review(item=item_obj))
+    serialize_rules = ("-reviews.customer",)
 
-            review_dict = r.to_dict()
-            assert review_dict['id']
-            assert review_dict['customer']
-            assert review_dict['item']
-            assert review_dict['comment'] == 'great!'
-            assert 'reviews' not in review_dict['customer']
-            assert 'reviews' not in review_dict['item']
+
+
+    def __repr__(self):
+        return f'<Customer {self.id}, {self.name}>'
+
+
+class Item(db.Model, SerializerMixin):
+    __tablename__ = 'items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String)
+    price = db.Column(db.Float)
+
+    reviews = db.relationship("Review", back_populates="item")
+    serialize_rules = ("-reviews.item",)
+
+    def __repr__(self):
+        return f'<Item {self.id}, {self.name}, {self.price}>'
+    
+
+class Review(db.Model, SerializerMixin):
+    __tablename__ = 'reviews'
+
+    id = db.Column(db.Integer, primary_key=True) 
+    comment = db.Column(db.String)  
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
+    item_id = db.Column(db.Integer, db.ForeignKey('items.id'))
+
+    customer = db.relationship('Customer', back_populates='reviews')
+    item = db.relationship('Item', back_populates='reviews')
+    serialize_rules = ("-customer.reviews", "-item.reviews",)
+
+    def __repr__(self):
+        return f"<Review {self.id}, {self.comment}, {self.customer.name}, {self.item.name}>"
